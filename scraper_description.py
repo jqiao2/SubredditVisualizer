@@ -1,3 +1,4 @@
+import random
 import re
 from collections import defaultdict
 
@@ -50,18 +51,29 @@ for _ in range(1000):
     print("analyzed", this_subreddit)
 
 stream = streamer.Streamer(streamer.GephiWS(workspace="workspace1"))
-for key, value in subreddit_edges.items():
-    try:
-        size_a = data.loc[key[0]].norm_subs
-    except KeyError:
-        size_a = 1
-    try:
-        size_b = data.loc[key[1]].norm_subs
-    except KeyError:
-        size_b = 1
 
-    subreddit_a = graph.Node(key[0], Label=key[0], size=size_a)
-    subreddit_b = graph.Node(key[1], Label=key[1], size=size_b)
+
+def add_node(subreddit):
+    try:
+        size = data.loc[subreddit].norm_subs
+        category = data.loc[subreddit].Category
+        nsfw = data.loc[subreddit].Over_18
+    except KeyError:
+        size = 1
+        category = ""
+        nsfw = False
+
+    if nsfw:
+        red, green, blue = 0, 0, 1
+    else:
+        red, green, blue = random.uniform(0, 1), random.uniform(0, 1), random.uniform(0, 1)
+
+    return graph.Node(subreddit, label=subreddit, red=red, green=green, blue=blue, size=size)
+
+
+for key, value in subreddit_edges.items():
+    subreddit_a = add_node(key[0])
+    subreddit_b = add_node(key[1])
 
     connection = graph.Edge(subreddit_a, subreddit_b, directed=False, weight=value)
 
