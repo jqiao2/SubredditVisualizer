@@ -1,4 +1,3 @@
-import random
 import re
 from collections import defaultdict
 
@@ -22,13 +21,19 @@ r = praw.Reddit(client_id=ID,
 data = pd.read_csv("normed_subs.csv", index_col=1)
 
 subreddit_edges = defaultdict(int)
-subreddits = r.subreddits.popular(limit=2000000)
-for _ in range(1000):
-    try:
-        subreddit = subreddits.next()
-    except StopIteration:
-        break
+processed_subreddits = set()
+subreddits = r.subreddits.popular(limit=100)
+
+
+def process_subreddit(subreddit, depth=0):
+    if depth >= 3:
+        return
+
     this_subreddit = subreddit.display_name.lower()
+    if this_subreddit in processed_subreddits or subreddit.subscribers < 1000:
+        return
+    else:
+        processed_subreddits.add(this_subreddit)
 
     descriptions = subreddit.description.split('/r/')
     iter_descriptions = iter(descriptions)
@@ -39,6 +44,8 @@ for _ in range(1000):
             continue
         subreddit_edges[tuple(sorted((this_subreddit, referenced_subreddit)))] += 1
 
+        # process_subreddit(r.subreddit(referenced_subreddit), depth + 1)
+
     submit_texts = subreddit.submit_text.split('/r/')
     iter_submit_texts = iter(submit_texts)
     next(iter_submit_texts)
@@ -48,9 +55,22 @@ for _ in range(1000):
             continue
         subreddit_edges[tuple(sorted((this_subreddit, referenced_subreddit)))] += 1
 
+        # process_subreddit(r.subreddit(referenced_subreddit), depth + 1)
+
     print("analyzed", this_subreddit)
 
-stream = streamer.Streamer(streamer.GephiWS(workspace="workspace1"))
+
+# for _ in range(1000):
+while True:
+    try:
+        next_sub = subreddits.next()
+    except StopIteration:
+        break
+
+    process_subreddit(next_sub)
+
+
+# stream = streamer.Streamer(streamer.GephiWS(workspace="workspace1"))
 
 
 def add_node(subreddit):
@@ -66,7 +86,12 @@ def add_node(subreddit):
     if nsfw:
         red, green, blue = 0, 0, 1
     else:
-        red, green, blue = random.uniform(0, 1), random.uniform(0, 1), random.uniform(0, 1)
+        test_string = abs(hash(category))
+        red = test_string % 524288 / 524288.0
+        test_string = test_string / 524288
+        green = test_string % 524288 / 524288.0
+        test_string = test_string / 524288
+        blue = test_string % 524288 / 524288.0
 
     return graph.Node(subreddit, label=subreddit, red=red, green=green, blue=blue, size=size)
 
