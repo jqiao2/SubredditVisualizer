@@ -22,11 +22,11 @@ data = pd.read_csv("normed_subs.csv", index_col=1)
 
 subreddit_edges = defaultdict(int)
 processed_subreddits = set()
-subreddits = r.subreddits.popular(limit=100)
+subreddits = r.subreddits.popular(limit=None)
 
 
 def process_subreddit(subreddit, depth=0):
-    if depth >= 3:
+    if depth > 2:
         return
 
     this_subreddit = subreddit.display_name.lower()
@@ -69,8 +69,7 @@ while True:
 
     process_subreddit(next_sub)
 
-
-# stream = streamer.Streamer(streamer.GephiWS(workspace="workspace1"))
+stream = streamer.Streamer(streamer.GephiWS(workspace="workspace1"))
 
 
 def add_node(subreddit):
@@ -87,11 +86,11 @@ def add_node(subreddit):
         red, green, blue = 0, 0, 1
     else:
         test_string = abs(hash(category))
-        red = test_string % 524288 / 524288.0
+        red = 1 - test_string % 524288 / 524288.0
         test_string = test_string / 524288
-        green = test_string % 524288 / 524288.0
+        green = 1 - test_string % 524288 / 524288.0
         test_string = test_string / 524288
-        blue = test_string % 524288 / 524288.0
+        blue = 1 - test_string % 524288 / 524288.0
 
     return graph.Node(subreddit, label=subreddit, red=red, green=green, blue=blue, size=size)
 
