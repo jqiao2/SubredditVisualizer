@@ -1,10 +1,8 @@
 import re
-from collections import defaultdict
 
 import pandas as pd
 import praw
-from gephistreamer import graph
-from gephistreamer import streamer
+from prawcore import PrawcoreException
 
 from Profile import ID
 from Profile import PASSWORD
@@ -12,94 +10,94 @@ from Profile import SECRET
 from Profile import USERNAME
 from Profile import USER_AGENT
 
+POPULAR_THRESHOLD = 300000
+SUBSCRIBER_LIMIT = 1000
+DEPTH_RESET_THRESHOLD = 20000
+
 r = praw.Reddit(client_id=ID,
                 client_secret=SECRET,
                 password=PASSWORD,
                 user_agent=USER_AGENT,
                 username=USERNAME)
 
-data = pd.read_csv("normed_subs.csv", index_col=1)
+processed_subs = set()
+skipped_subreddits = set()
+subreddit_data = []
 
-subreddit_edges = defaultdict(int)
-processed_subreddits = set()
+
+def process():
+    data = pd.read_csv("subreddits.csv")
+    for index, row in data.iterrows():
+        processed_subs.add(row.subreddit)
+
+
+def process_subreddit(this_sub, subreddit=None, depth=0):
+    if depth > 1 or this_sub in processed_subs or (this_sub in skipped_subreddits and depth > 0):
+        return
+
+    if subreddit is None:
+        try:
+            subreddit = r.subreddit(this_sub)
+            if subreddit.subscribers < SUBSCRIBER_LIMIT:
+                return
+        except PrawcoreException:
+            return
+
+    if subreddit.subscribers > DEPTH_RESET_THRESHOLD:
+        depth = 0
+
+    processed_subs.add(this_sub)
+    print("start", this_sub)
+
+    subreddit_data.append({"subreddit": this_sub, "description": subreddit.description, "submit_text": subreddit.submit_text,
+                           "subscribers": subreddit.subscribers, "normed_subscribers": max(1.0, pow(subreddit.subscribers, 0.5) / 100),
+                           "category": subreddit.advertiser_category, "over_18": subreddit.over18})
+
+    try:
+        descriptions = subreddit.description.split('/r/')
+        iter_descriptions = iter(descriptions)
+        next(iter_descriptions)
+        for description in iter_descriptions:
+            that_sub = re.split('[^a-zA-Z0-9_]', description)[0].lower()
+            if that_sub == "" or this_sub == that_sub:
+                continue
+            process_subreddit(that_sub, depth=depth + 1)
+    except AttributeError:
+        print("no description")
+
+    try:
+        submit_texts = subreddit.submit_text.split('/r/')
+        iter_submit_texts = iter(submit_texts)
+        next(iter_submit_texts)
+        for submit_text in iter_submit_texts:
+            that_sub = re.split('[^a-zA-Z0-9_]', submit_text)[0].lower()
+            if that_sub == "" or this_sub == that_sub:
+                continue
+            process_subreddit(that_sub, depth=depth + 1)
+    except AttributeError:
+        print("no submit text")
+
+
+# process()
+
+# let's us skip all these if they appear on the tree of another subreddit
+print("analyzing skippable subreddits")
 subreddits = r.subreddits.popular(limit=None)
+while True:
+    try:
+        next_sub = subreddits.next()
+        skipped_subreddits.add(next_sub.display_name.lower())
+    except StopIteration:
+        break
 
-
-def process_subreddit(subreddit, depth=0):
-    if depth > 2:
-        return
-
-    this_subreddit = subreddit.display_name.lower()
-    if this_subreddit in processed_subreddits or subreddit.subscribers < 1000:
-        return
-    else:
-        processed_subreddits.add(this_subreddit)
-
-    descriptions = subreddit.description.split('/r/')
-    iter_descriptions = iter(descriptions)
-    next(iter_descriptions)
-    for description in iter_descriptions:
-        referenced_subreddit = re.split('[^a-zA-Z0-9_]', description)[0].lower()
-        if referenced_subreddit == "" or this_subreddit == referenced_subreddit:
-            continue
-        subreddit_edges[tuple(sorted((this_subreddit, referenced_subreddit)))] += 1
-
-        # process_subreddit(r.subreddit(referenced_subreddit), depth + 1)
-
-    submit_texts = subreddit.submit_text.split('/r/')
-    iter_submit_texts = iter(submit_texts)
-    next(iter_submit_texts)
-    for submit_text in iter_submit_texts:
-        referenced_subreddit = re.split('[^a-zA-Z0-9_]', submit_text)[0].lower()
-        if referenced_subreddit == "" or this_subreddit == referenced_subreddit:
-            continue
-        subreddit_edges[tuple(sorted((this_subreddit, referenced_subreddit)))] += 1
-
-        # process_subreddit(r.subreddit(referenced_subreddit), depth + 1)
-
-    print("analyzed", this_subreddit)
-
-
-# for _ in range(1000):
+print("starting")
+subreddits = r.subreddits.popular(limit=None)
 while True:
     try:
         next_sub = subreddits.next()
     except StopIteration:
         break
 
-    process_subreddit(next_sub)
+    process_subreddit(next_sub.display_name.lower(), next_sub)
 
-stream = streamer.Streamer(streamer.GephiWS(workspace="workspace1"))
-
-
-def add_node(subreddit):
-    try:
-        size = data.loc[subreddit].norm_subs
-        category = data.loc[subreddit].Category
-        nsfw = data.loc[subreddit].Over_18
-    except KeyError:
-        size = 1
-        category = ""
-        nsfw = False
-
-    if nsfw:
-        red, green, blue = 0, 0, 1
-    else:
-        test_string = abs(hash(category))
-        red = 1 - test_string % 524288 / 524288.0
-        test_string = test_string / 524288
-        green = 1 - test_string % 524288 / 524288.0
-        test_string = test_string / 524288
-        blue = 1 - test_string % 524288 / 524288.0
-
-    return graph.Node(subreddit, label=subreddit, red=red, green=green, blue=blue, size=size)
-
-
-for key, value in subreddit_edges.items():
-    subreddit_a = add_node(key[0])
-    subreddit_b = add_node(key[1])
-
-    connection = graph.Edge(subreddit_a, subreddit_b, directed=False, weight=value)
-
-    stream.add_node(subreddit_a, subreddit_b)
-    stream.add_edge(connection)
+pd.DataFrame(subreddit_data).to_csv("new subreddits.csv")
